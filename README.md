@@ -1,1 +1,2 @@
-# Automated-Retail-shelf-monitoring-and-management
+This project is a Smart Retail Shelf Management System that uses AI and computer vision to automatically detect products, monitor shelves, and track inventory in real-time. It applies the YOLOv8 model for product detection and Canny Edge Detection with Hough Transform for shelf row detection. A Gradio-based user interface allows users to upload videos, view results, and track inventory easily, helping retailers keep shelves organized, avoid stockouts, and improve store efficiency.
+
