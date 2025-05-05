@@ -1,0 +1,100 @@
+# Automated-Retail-shelf-monitoring-and-management
+!pip install gradio --quiet
+pip install ultralytics
+
+import gradio as gr
+import cv2
+import numpy as np
+from collections import defaultdict
+from ultralytics import YOLO
+
+# Load the YOLO model
+model_path = "/kaggle/input/demo-model3/yolov8s_finetuned.pt"  # Update this
+model = YOLO(model_path)
+
+def detect_shelf_lines(frame):
+    """Detects horizontal shelf lines in a frame using Canny + Hough Transform."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 150)
+
+    # Detect horizontal shelf lines using Hough Transform
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 80, minLineLength=40, maxLineGap=5)
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            if abs(y2 - y1) < 10:  # Filter only horizontal lines
+                cv2.line(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)  # 🔴 Red lines for shelves
+    return frame
+
+def process_video(input_video_path):
+    """Processes video with both shelf detection and product detection using YOLO."""
+    cap = cv2.VideoCapture(input_video_path)
+    output_path = "output.mp4"
+
+    # Get video properties
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    final_product_counts = defaultdict(int)
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # ⿡ *Apply Shelf Detection*
+        frame = detect_shelf_lines(frame)
+
+        # ⿢ *Apply Product Detection using YOLO*
+        results = model.predict(frame, imgsz=640, conf=0.5)
+        frame_counts = defaultdict(int)
+
+        for r in results:
+            for box in r.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                conf = float(box.conf[0])  # Confidence score
+                cls = int(box.cls[0])
+                product_name = model.names[cls]
+
+                # Draw bounding box around detected product
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)  # 🟩 Green box
+
+                # Display product name and confidence score
+                label = f"{product_name}: {conf:.2f}"
+                cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+                # Store only the final frame counts
+                frame_counts[product_name] += 1
+
+        # Update final product count (only from last processed frame)
+        final_product_counts = frame_counts
+
+        # Write processed frame to output video
+        out.write(frame)
+
+    cap.release()
+    out.release()
+
+    # Return processed video path and product count as a dictionary
+    return output_path, dict(final_product_counts)
+
+# Define the Gradio interface
+def gradio_interface(video):
+    """Handles the Gradio UI processing."""
+    output_video, product_counts = process_video(video)
+    return output_video, str(product_counts)  # Convert dict to string for display
+
+# Create the Gradio UI
+iface = gr.Interface(
+    fn=gradio_interface,
+    inputs=gr.Video(label="Upload Video"),
+    outputs=[gr.Video(label="Processed Video"), gr.Textbox(label="Product Counts")],
+    title="Smart Retail Shelf Management",
+    description="Upload a video to detect products and shelf rows using AI."
+)
+
+# Launch in Kaggle Notebook
+iface.launch(debug=True, share=True)
